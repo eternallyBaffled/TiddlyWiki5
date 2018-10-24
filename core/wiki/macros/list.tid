@@ -1,9 +1,9 @@
 title: $:/core/macros/list
 tags: $:/tags/Macro
 
-\define list-links(filter,type:"ul",subtype:"li",class:"")
+\define list-links(filter,type:"ul",subtype:"li",class:"",emptyMessage)
 <$type$ class="$class$">
-<$list filter="$filter$">
+<$list filter="$filter$" emptyMessage=<<__emptyMessage__>>>
 <$subtype$>
 <$link to={{!!title}}>
 <$transclude field="caption">
@@ -28,27 +28,25 @@ tags: $:/tags/Macro
 &nbsp;
 </div>
 <div>
-<$link to={{!!title}}>
 <$transclude tiddler="""$itemTemplate$""">
+<$link to={{!!title}}>
 <$transclude field="caption">
 <$view field="title"/>
 </$transclude>
-</$transclude>
 </$link>
+</$transclude>
 </div>
 </$droppable>
 </$list>
+</$type$>
 <$tiddler tiddler="">
-<$droppable actions=<<list-links-draggable-drop-actions>> tag="""$subtype$""">
+<$droppable actions=<<list-links-draggable-drop-actions>> tag="div">
 <div class="tc-droppable-placeholder">
 &nbsp;
 </div>
-<div>
-&nbsp;
-</div>
+<div style="height:0.5em;"/>
 </$droppable>
 </$tiddler>
-</$type$>
 </$vars>
 \end
 
@@ -69,31 +67,31 @@ tags: $:/tags/Macro
 </$set>
 \end
 
-\define list-tagged-draggable(tag,itemTemplate)
+\define list-tagged-draggable(tag,subFilter,emptyMessage,itemTemplate,elementTag:"div")
 <$set name="tag" value="""$tag$""">
-<$list filter="[<tag>tagging[]]">
-<div class="tc-menu-list-item">
+<$list filter="[<tag>tagging[]$subFilter$]" emptyMessage=<<__emptyMessage__>>>
+<$elementTag$ class="tc-menu-list-item">
 <$droppable actions=<<list-tagged-draggable-drop-actions>>>
-<div class="tc-droppable-placeholder">
+<$elementTag$ class="tc-droppable-placeholder">
 &nbsp;
-</div>
-<div>
+</$elementTag$>
+<$elementTag$>
 <$transclude tiddler="""$itemTemplate$""">
 <$link to={{!!title}}>
 <$view field="title"/>
 </$link>
 </$transclude>
-</div>
+</$elementTag$>
 </$droppable>
-</div>
+</$elementTag$>
 </$list>
 <$tiddler tiddler="">
 <$droppable actions=<<list-tagged-draggable-drop-actions>>>
-<div class="tc-droppable-placeholder">
+<$elementTag$ class="tc-droppable-placeholder">
 &nbsp;
-</div>
-<div style="height:0.5em;">
-</div>
+</$elementTag$>
+<$elementTag$ style="height:0.5em;">
+</$elementTag$>
 </$droppable>
 </$tiddler>
 </$set>

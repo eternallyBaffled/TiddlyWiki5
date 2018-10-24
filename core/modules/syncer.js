@@ -16,8 +16,11 @@ The syncer tracks changes to the store. If a syncadaptor is used then individual
 Defaults
 */
 Syncer.prototype.titleIsLoggedIn = "$:/status/IsLoggedIn";
+Syncer.prototype.titleIsAnonymous = "$:/status/IsAnonymous";
+Syncer.prototype.titleIsReadOnly = "$:/status/IsReadOnly";
 Syncer.prototype.titleUserName = "$:/status/UserName";
 Syncer.prototype.titleSyncFilter = "$:/config/SyncFilter";
+Syncer.prototype.titleSyncPollingInterval = "$:/config/SyncPollingInterval";
 Syncer.prototype.titleSavedNotification = "$:/language/Notifications/Save/Done";
 Syncer.prototype.taskTimerInterval = 1 * 1000; // Interval for sync timer
 Syncer.prototype.throttleInterval = 1 * 1000; // Defer saving tiddlers if they've changed in the last 1s...
@@ -33,6 +36,7 @@ function Syncer(options) {
 	var self = this;
 	this.wiki = options.wiki;
 	this.syncadaptor = options.syncadaptor;
+	this.disableUI = !!options.disableUI;
 	this.titleIsLoggedIn = options.titleIsLoggedIn || this.titleIsLoggedIn;
 	this.titleUserName = options.titleUserName || this.titleUserName;
 	this.titleSyncFilter = options.titleSyncFilter || this.titleSyncFilter;
@@ -40,9 +44,13 @@ function Syncer(options) {
 	this.taskTimerInterval = options.taskTimerInterval || this.taskTimerInterval;
 	this.throttleInterval = options.throttleInterval || this.throttleInterval;
 	this.fallbackInterval = options.fallbackInterval || this.fallbackInterval;
-	this.pollTimerInterval = options.pollTimerInterval || this.pollTimerInterval;
+	this.pollTimerInterval = options.pollTimerInterval || parseInt(this.wiki.getTiddlerText(this.titleSyncPollingInterval,""),10) || this.pollTimerInterval;
+	this.logging = "logging" in options ? options.logging : true;
 	// Make a logger
-	this.logger = new $tw.utils.Logger("syncer" + ($tw.browser ? "-browser" : "") + ($tw.node ? "-server" : "")  + (this.syncadaptor.name ? ("-" + this.syncadaptor.name) : ""));
+	this.logger = new $tw.utils.Logger("syncer" + ($tw.browser ? "-browser" : "") + ($tw.node ? "-server" : "")  + (this.syncadaptor.name ? ("-" + this.syncadaptor.name) : ""),{
+			colour: "cyan",
+			enable: this.logging
+		});
 	// Compile the dirty tiddler filter
 	this.filterFn = this.wiki.compileFilter(this.wiki.getTiddlerText(this.titleSyncFilter));
 	// Record information for known tiddlers
@@ -57,7 +65,7 @@ function Syncer(options) {
 		self.syncToServer(changes);
 	});
 	// Browser event handlers
-	if($tw.browser) {
+	if($tw.browser && !this.disableUI) {
 		// Set up our beforeunload handler
 		$tw.addUnloadTask(function(event) {
 			var confirmationMessage;
@@ -79,9 +87,11 @@ function Syncer(options) {
 		});
 	}
 	// Listen out for lazyLoad events
-	this.wiki.addEventListener("lazyLoad",function(title) {
-		self.handleLazyLoadEvent(title);
-	});
+	if(!this.disableUI) {
+		this.wiki.addEventListener("lazyLoad",function(title) {
+			self.handleLazyLoadEvent(title);
+		});		
+	}
 	// Get the login status
 	this.getStatus(function(err,isLoggedIn) {
 		// Do a sync from the server
@@ -134,7 +144,7 @@ Syncer.prototype.isDirty = function() {
 Update the document body with the class "tc-dirty" if the wiki has unsaved/unsynced changes
 */
 Syncer.prototype.updateDirtyStatus = function() {
-	if($tw.browser) {
+	if($tw.browser && !this.disableUI) {
 		$tw.utils.toggleClass(document.body,"tc-dirty",this.isDirty());
 	}
 };
@@ -144,7 +154,7 @@ Save an incoming tiddler in the store, and updates the associated tiddlerInfo
 */
 Syncer.prototype.storeTiddler = function(tiddlerFields,hasBeenLazyLoaded) {
 	// Save the tiddler
-	var tiddler = new $tw.Tiddler(this.wiki.getTiddler(tiddlerFields.title),tiddlerFields);
+	var tiddler = new $tw.Tiddler(tiddlerFields);
 	this.wiki.addTiddler(tiddler);
 	// Save the tiddler revision and changeCount details
 	this.tiddlerInfo[tiddlerFields.title] = {
@@ -162,17 +172,17 @@ Syncer.prototype.getStatus = function(callback) {
 		// Mark us as not logged in
 		this.wiki.addTiddler({title: this.titleIsLoggedIn,text: "no"});
 		// Get login status
-		this.syncadaptor.getStatus(function(err,isLoggedIn,username) {
+		this.syncadaptor.getStatus(function(err,isLoggedIn,username,isReadOnly,isAnonymous) {
 			if(err) {
 				self.logger.alert(err);
 				return;
 			}
 			// Set the various status tiddlers
+			self.wiki.addTiddler({title: self.titleIsReadOnly,text: isReadOnly ? "yes" : "no"});
+			self.wiki.addTiddler({title: self.titleIsAnonymous,text: isAnonymous ? "yes" : "no"});
 			self.wiki.addTiddler({title: self.titleIsLoggedIn,text: isLoggedIn ? "yes" : "no"});
 			if(isLoggedIn) {
 				self.wiki.addTiddler({title: self.titleUserName,text: username || ""});
-			} else {
-				self.wiki.deleteTiddler(self.titleUserName);
 			}
 			// Invoke the callback
 			if(callback) {
@@ -264,13 +274,16 @@ Syncer.prototype.handleLazyLoadEvent = function(title) {
 	// Don't lazy load the same tiddler twice
 	var info = this.tiddlerInfo[title];
 	if(!info || !info.hasBeenLazyLoaded) {
-		this.createTiddlerInfo(title);
-		this.tiddlerInfo[title].hasBeenLazyLoaded = true;
-		// Queue up a sync task to load this tiddler
-		this.enqueueSyncTask({
-			type: "load",
-			title: title
-		});		
+		// Don't lazy load if the tiddler isn't included in the sync filter
+		if(this.filterFn.call(this.wiki).indexOf(title) !== -1) {
+			this.createTiddlerInfo(title);
+			this.tiddlerInfo[title].hasBeenLazyLoaded = true;
+			// Queue up a sync task to load this tiddler
+			this.enqueueSyncTask({
+				type: "load",
+				title: title
+			});
+		}
 	}
 };
 
